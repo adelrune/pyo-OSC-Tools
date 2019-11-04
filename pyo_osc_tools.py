@@ -1,4 +1,5 @@
 from pyo import *
+from collections import deque
 import os
 import shutil
 import json
@@ -79,7 +80,7 @@ class OSCToSig:
 class OSCRecord:
     """Records a stream of OSC event as json files"""
     def __init__(self, foldername, framerate=24):
-        o = OSCToSig(idle_timer=0.01, sig_size=3)
+        self.o = OSCToSig(idle_timer=False, sig_size=3)
         try:
             os.mkdir(foldername)
         except:
@@ -87,7 +88,7 @@ class OSCRecord:
             os.mkdir(foldername)
         def dump_frame():
             with open("{}/frame{}.json".format(foldername, self.framenum),"w") as f:
-                json.dump(o.to_dict(), f)
+                json.dump(self.o.to_dict(), f)
             self.framenum += 1
 
         self.framenum = 0
@@ -98,9 +99,16 @@ class OSCRecord:
 
 class OSCRecordReader:
     """reads a recording made by OSCRecord"""
-    def __init__(self, foldername):
+    def __init__(self, foldername, buffer_size, loop_playback=True):
         self.current_index = 0
+        self.foldername = foldername
+        self.loop_playback = loop_playback
         self.current_data = None
+        self.framebuffer = deque()
+        self.nbfiles = len(next(os.walk(foldername))[2])
+        self.buffer_size = buffer_size
+        for i in range(buffer_size - 1):
+            self._pre_load_next()
         self.next()
 
     def get(address):
@@ -111,27 +119,41 @@ class OSCRecordReader:
             current_node = self.current_data.get(part, {})
         return 0 if current_node == {} else current_node
 
-    def next(self, idx=None):
-        """loads the next frame in memory"""
-        with open("{}/frame{}.json".format(foldername, self.current_index)) as f:
-            self.current_data = json.load(f)
+    def _pre_load_next(self):
+        try :
+            with open("{}/frame{}.json".format(self.foldername, self.current_index)) as f:
+                self.framebuffer.append(json.load(f))
+        except:
+            pass
         self.current_index += 1
+        if self.loop_playback:
+            self.current_index %= self.nbfiles
+
+    def next(self):
+        """loads the next frame in memory"""
+        try:
+            self.current_data = self.framebuffer.popleft()
+        except:
+            pass
+        self._pre_load_next()
 
 class OSCRecordSigReader:
     """Reads a recording made by OSCRecord as a sig tree with the same API as the OSCTosig class"""
-    def __init__(self, foldername, framerate=24):
-        self._root_node = _OSCNode(idle_timer=False)
-        self._reader = OscrecordReader(foldername)
+    def __init__(self, foldername, framerate=24, buffersize=None):
+        buffersize = framerate if buffersize is None else buffersize
+        self._root_node = _OSCNode(idle_timer=False, ramp=1/framerate)
+        self._reader = OSCRecordReader(foldername, buffersize)
         def set_tree():
             node = self._root_node
-            current_branch = self.reader.current_data
+            current_branch = self._reader.current_data
             def set_node(branch, node):
                 if type(branch) in [int, list, float] :
                     node.setValue(branch)
                 else:
                     for k in branch:
                         set_node(branch[k], node[k])
-            set_node(node, current_branch)
+            set_node(current_branch, node)
+            self._reader.next()
 
         self.pattern = Pattern(set_tree, 1/framerate)
 
@@ -140,13 +162,13 @@ class OSCRecordSigReader:
 
     def __getitem__(self, key):
         key = str(key)
-        return self._root_node[key]
+        return self._root_node["/"][key]
 
 if __name__ == "__main__":
     s = Server().boot()
     o = OSCToSig(idle_timer=0.01, sig_size=3, ramp=0.001)
     h1fs = o["hand"][1]["finger"]
-    s.stdart()
+    s.start()
     sls = Pan([
         SineLoop(
             freq=MToF(Scale(h1fs[i]["pos"].sig[0], -400.4, 1144.4, 0, 100)),
