@@ -138,9 +138,13 @@ class OSCRecordReader:
         self._pre_load_next()
 
 class OSCRecordSigReader:
-    """Reads a recording made by OSCRecord as a sig tree with the same API as the OSCTosig class"""
-    def __init__(self, foldername, framerate=24, buffersize=None):
+    """Reads a recording made by OSCRecord as a sig tree with the same API as the OSCTosig class.
+    Reads at a steady 24 fps by default but supports external frame advance triggers."""
+    def __init__(self, foldername, framerate=24, trigsource=None, buffersize=None):
         buffersize = framerate if buffersize is None else buffersize
+        # if this is constructed with an external trigsource, bypass the start method
+        self._needs_play = trigsource is None
+        self.trigsource = Metro(1/framerate) if trigsource is None else trigsource
         self._root_node = _OSCNode(idle_timer=False, ramp=1/framerate)
         self._reader = OSCRecordReader(foldername, buffersize)
         def set_tree():
@@ -155,10 +159,11 @@ class OSCRecordSigReader:
             set_node(current_branch, node)
             self._reader.next()
 
-        self.pattern = Pattern(set_tree, 1/framerate)
+        self.tf = TrigFunc (self.trigsource, set_tree)
 
     def start(self):
-        self.pattern.play()
+        if self._needs_play:
+            self.trigsource.play()
 
     def __getitem__(self, key):
         key = str(key)
