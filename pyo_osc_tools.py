@@ -11,6 +11,7 @@ class _OSCNode:
         self._child_nodes = {}
         self.address = address
         self.sig = SigTo([0]*sig_size, time=ramp)
+        self.sig_size = sig_size
         self.idle = True
         self.idle_timer = idle_timer
         self.ramp = ramp
@@ -34,7 +35,7 @@ class _OSCNode:
 
     def _get_eff(self, key):
         if key not in self._child_nodes:
-            self._child_nodes[key] = _OSCNode(self.idle_timer, self.ramp, address=key)
+            self._child_nodes[key] = _OSCNode(self.idle_timer, self.ramp, address=key, sig_size=self.sig_size)
         return self._child_nodes[key]
 
     def __getitem__(self, key):
@@ -140,12 +141,12 @@ class OSCRecordReader:
 class OSCRecordSigReader:
     """Reads a recording made by OSCRecord as a sig tree with the same API as the OSCTosig class.
     Reads at a steady 24 fps by default but supports external frame advance triggers."""
-    def __init__(self, foldername, framerate=24, trigsource=None, buffersize=None):
+    def __init__(self, foldername, framerate=24, trigsource=None, buffersize=None, sig_size=1):
         buffersize = framerate if buffersize is None else buffersize
         # if this is constructed with an external trigsource, bypass the start method
         self._needs_play = trigsource is None
         self.trigsource = Metro(1/framerate) if trigsource is None else trigsource
-        self._root_node = _OSCNode(idle_timer=False, ramp=1/framerate)
+        self._root_node = _OSCNode(idle_timer=False, ramp=1/framerate, sig_size=sig_size)
         self._reader = OSCRecordReader(foldername, buffersize)
         def set_tree():
             node = self._root_node
