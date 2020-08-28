@@ -45,7 +45,7 @@ class OSCToSig:
     """Converts any osc messages sent to that port and osc address to a tree of pyo sigs"""
     def __init__(self, port=13001, idle_timer=0.1, ramp=0.01, osc_address_pattern="/*", sig_size=1):
         self._get_eff = self.__getitem__
-        self._root_node = _OSCNode(idle_timer, ramp)
+        self._root_node = _OSCNode(idle_timer, ramp, sig_size)
         # values of y between these ranges will go from 0 to 1
         def receive_msg(address, *args):
             addresses = address.split("/")[1:]
@@ -134,7 +134,7 @@ class OSCRecordReader:
         try:
             self.current_data = self.framebuffer.popleft()
         except:
-            pass
+            return "ended"
         self._pre_load_next()
 
 class OSCRecordSigReader:
@@ -157,9 +157,11 @@ class OSCRecordSigReader:
                     for k in branch:
                         set_node(branch[k], node[k])
             set_node(current_branch, node)
-            self._reader.next()
+            if self._reader.next() == "ended":
+                self.end_trig.play()
 
         self.tf = TrigFunc (self.trigsource, set_tree)
+        self.end_trig = Trig()
 
     def start(self):
         if self._needs_play:
